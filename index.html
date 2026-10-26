@@ -5,13 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="description" content="Retire automatiquement les blancs d'une vidéo dans le navigateur, avant le montage.">
 <title>Coupe Silences</title>
+<script>
+  // Apply the saved theme before first paint to avoid a flash.
+  try { var t = localStorage.getItem("coupe-theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch (e) {}
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@500;700&family=Public+Sans:wght@400;500;600&display=swap">
 <style>
-html { color-scheme: light; }
-@media (prefers-color-scheme: dark) { html { color-scheme: dark; } }
 /* Layout: one working column, the timeline is the hero; settings and export sit under it like an editor's inspector. */
 :root {
+  color-scheme: light;
   --bg: #fbfbfb;
   --surface: #ffffff;
   --line: #dcdcdc;
@@ -48,7 +51,12 @@ body {
 h1 { font-family: var(--font-display); font-weight: 700; font-size: 2rem; letter-spacing: -0.02em; margin: 0; text-wrap: balance; }
 h2 { font-family: var(--font-display); font-weight: 500; font-size: 1.05rem; margin: 0; }
 .lede { color: var(--muted); margin: 6px 0 0; max-width: 62ch; }
-header { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 16px; }
+header { display: flex; flex-wrap: wrap; align-items: start; justify-content: space-between; gap: 16px; }
+.theme { display: flex; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+.theme button { border: 0; border-radius: 0; padding: 6px 12px; font-weight: 500; font-size: 0.85rem; background: transparent; color: var(--muted); }
+.theme button + button { border-left: 1px solid var(--line); }
+.theme button[aria-pressed=true] { background: var(--fg); color: var(--bg); }
+.theme button:focus-visible { outline-offset: -2px; }
 
 .drop {
   border: 1.5px dashed var(--line); border-radius: 6px; background: var(--surface);
@@ -114,6 +122,11 @@ video { width: 100%; max-height: 360px; background: #000; border-radius: 4px; di
     <div>
       <h1>Coupe Silences</h1>
       <p class="lede">Retire les blancs d'une vidéo avant le montage. Tout se passe dans ton navigateur : la vidéo n'est envoyée nulle part.</p>
+    </div>
+    <div class="theme" role="group" aria-label="Apparence">
+      <button type="button" data-theme-choice="system" title="Suit le réglage de l'ordinateur">Auto</button>
+      <button type="button" data-theme-choice="light">Clair</button>
+      <button type="button" data-theme-choice="dark">Sombre</button>
     </div>
   </header>
 
@@ -635,6 +648,17 @@ els.tl.addEventListener("click", (e) => {
 new ResizeObserver(() => draw()).observe(els.tl);
 matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", draw);
 new MutationObserver(draw).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+
+// theme switch: system (no attribute), light or dark
+function applyTheme(choice) {
+  const root = document.documentElement;
+  if (choice === "light" || choice === "dark") root.dataset.theme = choice;
+  else delete root.dataset.theme;
+  try { localStorage.setItem("coupe-theme", choice); } catch {}
+  for (const b of document.querySelectorAll("[data-theme-choice]")) b.setAttribute("aria-pressed", String(b.dataset.themeChoice === choice));
+}
+for (const b of document.querySelectorAll("[data-theme-choice]")) b.addEventListener("click", () => applyTheme(b.dataset.themeChoice));
+applyTheme(document.documentElement.dataset.theme || "system");
 
 // initial example state
 loadSettings();
