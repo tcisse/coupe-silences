@@ -1,0 +1,646 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="description" content="Retire automatiquement les blancs d'une vidéo dans le navigateur, avant le montage.">
+<title>Coupe Silences</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@500;700&family=Public+Sans:wght@400;500;600&display=swap">
+<style>
+html { color-scheme: light; }
+@media (prefers-color-scheme: dark) { html { color-scheme: dark; } }
+/* Layout: one working column, the timeline is the hero; settings and export sit under it like an editor's inspector. */
+:root {
+  --bg: #fbfbfb;
+  --surface: #ffffff;
+  --line: #dcdcdc;
+  --fg: #111111;
+  --muted: #6b6b6b;
+  --cut: #c9c9c9;
+  --cut-bg: #eeeeee;
+  --focus: #111111;
+  --font-display: "Familjen Grotesk", "Helvetica Neue", Arial, sans-serif;
+  --font-body: "Public Sans", "Helvetica Neue", Arial, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f0f0f; --surface: #171717; --line: #2e2e2e; --fg: #f2f2f2;
+    --muted: #9a9a9a; --cut: #474747; --cut-bg: #222222; --focus: #f2f2f2;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f0f0f; --surface: #171717; --line: #2e2e2e; --fg: #f2f2f2;
+  --muted: #9a9a9a; --cut: #474747; --cut-bg: #222222; --focus: #f2f2f2;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body {
+  background: var(--bg); color: var(--fg); font-family: var(--font-body);
+  font-size: 15px; line-height: 1.5;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 32px 48px;
+}
+.wrap { max-width: 920px; margin: 0 auto; display: grid; gap: 28px; }
+h1 { font-family: var(--font-display); font-weight: 700; font-size: 2rem; letter-spacing: -0.02em; margin: 0; text-wrap: balance; }
+h2 { font-family: var(--font-display); font-weight: 500; font-size: 1.05rem; margin: 0; }
+.lede { color: var(--muted); margin: 6px 0 0; max-width: 62ch; }
+header { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 16px; }
+
+.drop {
+  border: 1.5px dashed var(--line); border-radius: 6px; background: var(--surface);
+  padding: 20px; display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px;
+}
+.drop.over { border-color: var(--fg); }
+.drop .name { font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.drop .meta { color: var(--muted); font-size: 0.9rem; }
+.drop .grow { flex: 1 1 240px; min-width: 0; }
+
+button, .btn {
+  font: inherit; font-weight: 600; border-radius: 4px; padding: 10px 16px; cursor: pointer;
+  border: 1px solid var(--fg); background: var(--surface); color: var(--fg);
+}
+button.primary { background: var(--fg); color: var(--bg); }
+button:disabled { opacity: 0.4; cursor: not-allowed; }
+button:focus-visible, input:focus-visible, video:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+input[type=file] { display: none; }
+
+.panel { align-content: start; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 18px; display: grid; gap: 14px; min-width: 0; }
+.panel-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 8px; }
+.tag { font-size: 0.8rem; color: var(--muted); letter-spacing: 0.04em; text-transform: uppercase; }
+
+.timeline { position: relative; width: 100%; }
+.timeline canvas { display: block; width: 100%; height: 140px; cursor: pointer; }
+.legend { display: flex; flex-wrap: wrap; gap: 16px; font-size: 0.85rem; color: var(--muted); }
+.legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; margin-right: 6px; vertical-align: -1px; background: var(--fg); }
+.legend .c::before { background: var(--cut); }
+.legend .t::before { height: 0; border-top: 1.5px dashed var(--fg); width: 14px; vertical-align: 3px; background: none; }
+
+.stats { display: flex; flex-wrap: wrap; gap: 8px 28px; font-variant-numeric: tabular-nums; }
+.stat b { font-family: var(--font-display); font-size: 1.35rem; font-weight: 700; display: block; }
+.stat small { color: var(--muted); }
+
+.grid2 { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 20px; }
+@media (max-width: 760px) { .grid2 { grid-template-columns: 1fr; } }
+
+.field { display: grid; gap: 4px; }
+.field-top { display: flex; justify-content: space-between; gap: 12px; }
+.field-top output { font-variant-numeric: tabular-nums; font-weight: 600; }
+.field p { margin: 0; color: var(--muted); font-size: 0.85rem; }
+input[type=range] { width: 100%; accent-color: var(--fg); }
+.presets { display: flex; flex-wrap: wrap; gap: 8px; }
+.presets button { font-weight: 500; padding: 6px 12px; line-height: 1.3; border-color: var(--line); }
+.presets button[aria-pressed=true] { border-color: var(--fg); }
+
+video { width: 100%; max-height: 360px; background: #000; border-radius: 4px; display: block; }
+.check { display: flex; gap: 8px; align-items: center; font-size: 0.9rem; }
+
+.bar { height: 6px; background: var(--cut-bg); border-radius: 3px; overflow: hidden; }
+.bar > i { display: block; height: 100%; width: 0; background: var(--fg); transition: width 0.2s linear; }
+.status { color: var(--muted); font-size: 0.9rem; min-height: 1.5em; overflow-wrap: anywhere; }
+.status.err { color: var(--fg); font-weight: 600; }
+.actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.notes { color: var(--muted); font-size: 0.85rem; max-width: 70ch; display: grid; gap: 6px; }
+.notes p { margin: 0; }
+@media (prefers-reduced-motion: reduce) { .bar > i { transition: none; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Coupe Silences</h1>
+      <p class="lede">Retire les blancs d'une vidéo avant le montage. Tout se passe dans ton navigateur : la vidéo n'est envoyée nulle part.</p>
+    </div>
+  </header>
+
+  <label class="drop" id="drop" for="file">
+    <div class="grow">
+      <div class="name" id="fileName">Aucune vidéo choisie</div>
+      <div class="meta" id="fileMeta">Glisse une vidéo ici ou clique sur Choisir. MP4, MOV ou WebM.</div>
+    </div>
+    <span class="btn" role="button" tabindex="0" id="pickBtn">Choisir une vidéo</span>
+    <input type="file" id="file" accept="video/*,.mp4,.mov,.m4v,.webm,.mkv">
+  </label>
+
+  <section class="panel" aria-labelledby="tlTitle">
+    <div class="panel-head">
+      <h2 id="tlTitle">Ce qui sera coupé</h2>
+      <span class="tag" id="tlTag">Exemple</span>
+    </div>
+    <div class="timeline"><canvas id="tl" aria-label="Forme d'onde du son, zones coupées en gris"></canvas></div>
+    <div class="legend"><span>Gardé</span><span class="c">Coupé</span><span class="t">Seuil du silence</span></div>
+    <div class="stats" aria-live="polite">
+      <div class="stat"><b id="sCount">0</b><small>blancs</small></div>
+      <div class="stat"><b id="sRemoved">0 s</b><small>retirés</small></div>
+      <div class="stat"><b id="sFinal">0 s</b><small>durée finale</small></div>
+      <div class="stat"><b id="sPct">0 %</b><small>plus court</small></div>
+    </div>
+  </section>
+
+  <div class="grid2">
+    <section class="panel" aria-labelledby="setTitle">
+      <h2 id="setTitle">Réglages</h2>
+      <div class="presets" role="group" aria-label="Préréglages">
+        <button type="button" data-preset="doux">Doux</button>
+        <button type="button" data-preset="normal">Normal</button>
+        <button type="button" data-preset="nerveux">Nerveux</button>
+      </div>
+      <div class="field">
+        <div class="field-top"><label for="thr">Seuil du silence</label><output id="thrOut" for="thr"></output></div>
+        <input type="range" id="thr" min="-60" max="-20" step="1" value="-35">
+        <p>Plus haut, plus ça coupe (respirations, bruit de la pièce).</p>
+      </div>
+      <div class="field">
+        <div class="field-top"><label for="dur">Durée mini d'un blanc</label><output id="durOut" for="dur"></output></div>
+        <input type="range" id="dur" min="0.2" max="3" step="0.1" value="0.6">
+        <p>Les pauses plus courtes sont gardées.</p>
+      </div>
+      <div class="field">
+        <div class="field-top"><label for="mar">Marge conservée</label><output id="marOut" for="mar"></output></div>
+        <input type="range" id="mar" min="0" max="0.5" step="0.01" value="0.12">
+        <p>Évite de manger le début ou la fin des mots.</p>
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="pvTitle">
+      <h2 id="pvTitle">Aperçu et export</h2>
+      <video id="pv" controls playsinline preload="metadata" hidden></video>
+      <p class="status" id="pvEmpty">Choisis une vidéo pour l'écouter avec les blancs sautés avant d'exporter.</p>
+      <label class="check" id="skipWrap" hidden><input type="checkbox" id="skip" checked> Sauter les blancs pendant la lecture</label>
+      <div class="bar" aria-hidden="true"><i id="bar"></i></div>
+      <div class="status" id="status" role="status"></div>
+      <div class="actions">
+        <button class="primary" id="exportBtn" disabled>Couper et exporter</button>
+        <button id="cancelBtn" hidden>Annuler</button>
+        <button id="saveBtn" hidden>Télécharger le MP4</button>
+      </div>
+    </section>
+  </div>
+
+  <div class="notes">
+    <p>L'export réencode en H.264 avec la puce graphique de l'ordinateur. Compte quelques minutes pour 10 minutes de 1080p. Garde l'onglet ouvert pendant l'export.</p>
+    <p>Fonctionne sur Chrome, Edge et Safari récents. Les vidéos iPhone en HDR ressortent en SDR.</p>
+  </div>
+</div>
+
+<script type="importmap">
+{ "imports": {
+  "mediabunny": "https://cdn.jsdelivr.net/npm/mediabunny@1.62.1/dist/bundles/mediabunny.min.mjs",
+  "@mediabunny/aac-encoder": "https://cdn.jsdelivr.net/npm/@mediabunny/aac-encoder@1.62.1/dist/bundles/mediabunny-aac-encoder.min.mjs"
+} }
+</script>
+<script type="module">
+import {
+  Input, BlobSource, ALL_FORMATS, AudioSampleSink, VideoSampleSink,
+  Output, Mp4OutputFormat, BufferTarget, VideoSampleSource, AudioSampleSource,
+  QUALITY_HIGH, getFirstEncodableVideoCodec, getFirstEncodableAudioCodec,
+} from "mediabunny";
+
+// ---------------------------------------------------------------- engine
+const WIN = 0.01; // level window, seconds
+
+/** Peak amplitude per 10 ms window of the primary audio track. */
+async function analyseAudio(file, onProgress, signal) {
+  const input = new Input({ source: new BlobSource(file), formats: ALL_FORMATS });
+  const at = await input.getPrimaryAudioTrack();
+  const vt = await input.getPrimaryVideoTrack();
+  if (!at) throw new Error("Cette vidéo n'a pas de son : rien à détecter.");
+  if (!(await at.canDecode())) throw new Error("Ce navigateur ne sait pas lire le son de cette vidéo. Essaie Chrome.");
+  const duration = await input.computeDuration();
+  const peaks = new Float32Array(Math.ceil(duration / WIN) + 2);
+  let buf = new Float32Array(4096);
+  const sink = new AudioSampleSink(at);
+  let lastReport = 0;
+  for await (const s of sink.samples()) {
+    if (signal?.aborted) { s.close(); throw new DOMException("cancel", "AbortError"); }
+    const n = s.numberOfFrames, ch = s.numberOfChannels, sr = s.sampleRate, t0 = s.timestamp;
+    if (buf.length < n) buf = new Float32Array(n);
+    for (let c = 0; c < ch; c++) {
+      s.copyTo(buf, { planeIndex: c, format: "f32-planar" });
+      let idx = Math.floor(t0 / WIN), nextEdge = (idx + 1) * WIN, m = peaks[Math.max(0, idx)] || 0;
+      for (let i = 0; i < n; i++) {
+        const t = t0 + i / sr;
+        if (t >= nextEdge) {
+          if (idx >= 0 && idx < peaks.length) peaks[idx] = m;
+          idx = Math.floor(t / WIN); nextEdge = (idx + 1) * WIN;
+          m = (idx >= 0 && idx < peaks.length) ? peaks[idx] : 0;
+        }
+        const a = buf[i] < 0 ? -buf[i] : buf[i];
+        if (a > m) m = a;
+      }
+      if (idx >= 0 && idx < peaks.length) peaks[idx] = m;
+    }
+    s.close();
+    if (t0 - lastReport > 1) { lastReport = t0; onProgress?.(Math.min(1, t0 / duration)); }
+  }
+  let fps = null, width = 0, height = 0;
+  if (vt) {
+    width = await vt.getCodedWidth(); height = await vt.getCodedHeight();
+    try { fps = (await vt.computePacketStats(200)).averagePacketRate; } catch {}
+  }
+  input.dispose?.();
+  return { duration, peaks, hasVideo: !!vt, fps, width, height };
+}
+
+/** Silences from peaks, then kept segments with output offsets. */
+function buildPlan(peaks, duration, thrDb, minSil, margin) {
+  const thr = Math.pow(10, thrDb / 20);
+  const minWin = Math.round(minSil / WIN);
+  const total = Math.min(peaks.length, Math.ceil(duration / WIN));
+  const silences = [];
+  let run = -1;
+  for (let i = 0; i <= total; i++) {
+    const silent = i < total && peaks[i] < thr;
+    if (silent && run < 0) run = i;
+    if (!silent && run >= 0) {
+      if (i - run >= minWin) silences.push([run * WIN, Math.min(duration, i * WIN)]);
+      run = -1;
+    }
+  }
+  const cuts = [];
+  for (const [s, e] of silences) {
+    const a = s <= 0.01 ? 0 : s + margin;
+    const b = e >= duration - 0.01 ? duration : e - margin;
+    if (b - a > 0.02) cuts.push([a, b]);
+  }
+  const keep = [];
+  let cur = 0;
+  for (const [a, b] of cuts) { if (a > cur) keep.push([cur, a]); cur = Math.max(cur, b); }
+  if (cur < duration) keep.push([cur, duration]);
+  const segs = [];
+  let off = 0;
+  for (const [a, b] of keep) { if (b - a < 0.05) continue; segs.push({ a, b, off }); off += b - a; }
+  return { silences: silences.length, cuts, segs, outDuration: off, duration };
+}
+
+/** Re-encode only the kept segments. Audio and video share one time map, so they stay in sync. */
+async function renderCut(file, plan, onProgress, signal) {
+  const input = new Input({ source: new BlobSource(file), formats: ALL_FORMATS });
+  const vt = await input.getPrimaryVideoTrack();
+  const at = await input.getPrimaryAudioTrack();
+  const output = new Output({ format: new Mp4OutputFormat({ fastStart: "in-memory" }), target: new BufferTarget() });
+  const warnings = [];
+
+  let vSrc = null;
+  if (vt) {
+    const width = await vt.getCodedWidth(), height = await vt.getCodedHeight();
+    const vCodec = await getFirstEncodableVideoCodec(["avc", "hevc", "vp9", "av1"], { width, height });
+    if (!vCodec) throw new Error("Ce navigateur ne sait pas encoder de vidéo. Utilise Chrome ou Safari à jour.");
+    if (vCodec !== "avc") warnings.push(`Vidéo encodée en ${vCodec.toUpperCase()} (H.264 indisponible ici) : CapCut risque de ne pas l'ouvrir.`);
+    vSrc = new VideoSampleSource({ codec: vCodec, quality: QUALITY_HIGH, keyFrameInterval: 2 });
+    output.addVideoTrack(vSrc);
+  }
+
+  const channels = await at.getNumberOfChannels(), sampleRate = await at.getSampleRate();
+  let aCodec = await getFirstEncodableAudioCodec(["aac"], { numberOfChannels: channels, sampleRate });
+  if (!aCodec) {
+    try {
+      const { registerAacEncoder } = await import("@mediabunny/aac-encoder");
+      registerAacEncoder();
+      aCodec = await getFirstEncodableAudioCodec(["aac"], { numberOfChannels: channels, sampleRate });
+    } catch {}
+  }
+  if (!aCodec) {
+    aCodec = await getFirstEncodableAudioCodec(["opus"], { numberOfChannels: channels, sampleRate });
+    if (!aCodec) throw new Error("Ce navigateur ne sait pas encoder le son.");
+    warnings.push("Son encodé en Opus (AAC indisponible ici) : CapCut risque de ne pas l'ouvrir.");
+  }
+  const aSrc = new AudioSampleSource({ codec: aCodec, quality: QUALITY_HIGH });
+  output.addAudioTrack(aSrc);
+  await output.start();
+
+  const segs = plan.segs;
+  const total = plan.duration;
+  let vPos = 0, aPos = 0;
+  const report = () => onProgress?.(Math.min(1, (vt ? Math.min(vPos, aPos) : aPos) / total));
+  const check = () => { if (signal?.aborted) throw new DOMException("cancel", "AbortError"); };
+
+  async function videoLoop() {
+    let si = 0, n = 0;
+    for await (const s of new VideoSampleSink(vt).samples()) {
+      try {
+        check();
+        const t = s.timestamp;
+        while (si < segs.length && t >= segs[si].b) si++;
+        if (si < segs.length && t >= segs[si].a) {
+          s.setTimestamp(segs[si].off + (t - segs[si].a));
+          await vSrc.add(s);
+        }
+        vPos = t;
+        if (++n % 15 === 0) report();
+      } finally { s.close(); }
+    }
+    vPos = total; vSrc.close();
+  }
+
+  async function audioLoop() {
+    let si = 0;
+    for await (const s of new AudioSampleSink(at).samples()) {
+      try {
+        check();
+        const t = s.timestamp, sr = s.sampleRate, end = t + s.numberOfFrames / sr;
+        while (si < segs.length && t >= segs[si].b) si++;
+        for (let k = si; k < segs.length && segs[k].a < end; k++) {
+          const lo = Math.max(t, segs[k].a), hi = Math.min(end, segs[k].b);
+          const f0 = Math.max(0, Math.round((lo - t) * sr));
+          const f1 = Math.min(s.numberOfFrames, Math.round((hi - t) * sr));
+          if (f1 > f0) {
+            const part = s.trim(f0, f1);
+            part.setTimestamp(segs[k].off + (lo - segs[k].a));
+            try { await aSrc.add(part); } finally { part.close(); }
+          }
+        }
+        aPos = t;
+        report();
+      } finally { s.close(); }
+    }
+    aPos = total; aSrc.close();
+  }
+
+  try {
+    await Promise.all([vt ? videoLoop() : Promise.resolve(), audioLoop()]);
+    check();
+    await output.finalize();
+  } catch (e) {
+    try { await output.cancel(); } catch {}
+    throw e;
+  } finally { input.dispose?.(); }
+  onProgress?.(1);
+  return { blob: new Blob([output.target.buffer], { type: "video/mp4" }), warnings };
+}
+
+// expose for automated tests
+window.__coupe = { analyseAudio, buildPlan, renderCut };
+
+// ---------------------------------------------------------------- UI
+const $ = (id) => document.getElementById(id);
+const els = {
+  file: $("file"), drop: $("drop"), pick: $("pickBtn"), name: $("fileName"), meta: $("fileMeta"),
+  tl: $("tl"), tag: $("tlTag"), thr: $("thr"), dur: $("dur"), mar: $("mar"),
+  thrOut: $("thrOut"), durOut: $("durOut"), marOut: $("marOut"),
+  sCount: $("sCount"), sRemoved: $("sRemoved"), sFinal: $("sFinal"), sPct: $("sPct"),
+  pv: $("pv"), pvEmpty: $("pvEmpty"), skip: $("skip"), skipWrap: $("skipWrap"),
+  bar: $("bar"), status: $("status"), exportBtn: $("exportBtn"), cancelBtn: $("cancelBtn"), saveBtn: $("saveBtn"),
+};
+
+const PRESETS = {
+  doux: { thr: -40, dur: 1.0, mar: 0.2 },
+  normal: { thr: -35, dur: 0.6, mar: 0.12 },
+  nerveux: { thr: -32, dur: 0.3, mar: 0.06 },
+};
+
+const state = { file: null, analysis: null, plan: null, sample: true, busy: false, abort: null, result: null, url: null };
+
+function fmtDur(sec) {
+  sec = Math.max(0, Math.round(sec));
+  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+  if (h) return `${h} h ${String(m).padStart(2, "0")} min`;
+  if (m) return `${m} min ${String(s).padStart(2, "0")} s`;
+  return `${s} s`;
+}
+function fmtClock(sec) {
+  const m = Math.floor(sec / 60), s = Math.floor(sec % 60);
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+function setStatus(text, err = false) { els.status.textContent = text; els.status.classList.toggle("err", err); }
+function setBar(p) { els.bar.style.width = `${Math.round(p * 1000) / 10}%`; }
+
+// Sample waveform so the page shows what it does before a file is chosen.
+function samplePeaks(duration = 90) {
+  const n = Math.ceil(duration / WIN) + 2, p = new Float32Array(n);
+  let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  let t = 0;
+  while (t < duration) {
+    const talk = 1.5 + rnd() * 5, gap = rnd() < 0.3 ? 0.2 + rnd() * 0.4 : 0.6 + rnd() * 2.2;
+    for (let i = Math.floor(t / WIN); i < Math.min(n, (t + talk) / WIN); i++) {
+      const syll = 0.35 + 0.65 * Math.abs(Math.sin(i * 0.37 + rnd()));
+      p[i] = 0.08 + 0.5 * syll * (0.6 + 0.4 * rnd());
+    }
+    t += talk;
+    for (let i = Math.floor(t / WIN); i < Math.min(n, (t + gap) / WIN); i++) p[i] = 0.002 + 0.004 * rnd();
+    t += gap;
+  }
+  return { duration, peaks: p, hasVideo: true };
+}
+
+function settings() { return { thr: +els.thr.value, dur: +els.dur.value, mar: +els.mar.value }; }
+function syncOutputs() {
+  const s = settings();
+  els.thrOut.textContent = `${s.thr} dB`;
+  els.durOut.textContent = `${s.dur.toFixed(1).replace(".", ",")} s`;
+  els.marOut.textContent = `${s.mar.toFixed(2).replace(".", ",")} s`;
+  for (const b of document.querySelectorAll("[data-preset]")) {
+    const p = PRESETS[b.dataset.preset];
+    b.setAttribute("aria-pressed", String(p.thr === s.thr && p.dur === s.dur && Math.abs(p.mar - s.mar) < 0.001));
+  }
+}
+function saveSettings() { try { localStorage.setItem("coupe-settings", JSON.stringify(settings())); } catch {} }
+function loadSettings() {
+  try {
+    const s = JSON.parse(localStorage.getItem("coupe-settings") || "null");
+    if (s) { els.thr.value = s.thr; els.dur.value = s.dur; els.mar.value = s.mar; }
+  } catch {}
+}
+
+function recompute() {
+  syncOutputs();
+  const a = state.analysis;
+  if (!a) return;
+  const s = settings();
+  state.plan = buildPlan(a.peaks, a.duration, s.thr, s.dur, s.mar);
+  const p = state.plan;
+  els.sCount.textContent = p.silences;
+  els.sRemoved.textContent = fmtDur(p.duration - p.outDuration);
+  els.sFinal.textContent = fmtDur(p.outDuration);
+  els.sPct.textContent = `${Math.round((1 - p.outDuration / p.duration) * 100)} %`;
+  if (state.result) { state.result = null; els.saveBtn.hidden = true; setStatus("Réglages modifiés : exporte à nouveau."); }
+  draw();
+}
+
+function cssVar(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+
+function draw() {
+  const c = els.tl, a = state.analysis, p = state.plan;
+  const dpr = window.devicePixelRatio || 1, w = c.clientWidth, h = c.clientHeight;
+  if (!w) return;
+  c.width = Math.round(w * dpr); c.height = Math.round(h * dpr);
+  const g = c.getContext("2d");
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const fg = cssVar("--fg"), cut = cssVar("--cut"), cutBg = cssVar("--cut-bg"), muted = cssVar("--muted"), line = cssVar("--line");
+  g.clearRect(0, 0, w, h);
+  if (!a || !p) return;
+  const axisH = 18, top = 4, H = h - axisH - top, D = a.duration;
+  const x = (t) => (t / D) * w;
+  // cut regions
+  g.fillStyle = cutBg;
+  for (const [s, e] of p.cuts) g.fillRect(x(s), top, Math.max(1, x(e) - x(s)), H);
+  // waveform, dB scale -60..0, mirrored around the middle
+  const toY = (amp) => { const db = 20 * Math.log10(Math.max(amp, 1e-6)); return Math.max(0, Math.min(1, (db + 60) / 60)); };
+  const mid = top + H / 2;
+  let ci = 0;
+  for (let px = 0; px < w; px++) {
+    const t0 = (px / w) * D, t1 = ((px + 1) / w) * D;
+    let m = 0;
+    for (let i = Math.floor(t0 / WIN); i < Math.min(a.peaks.length, Math.ceil(t1 / WIN)); i++) if (a.peaks[i] > m) m = a.peaks[i];
+    const tc = (t0 + t1) / 2;
+    while (ci < p.cuts.length && p.cuts[ci][1] < tc) ci++;
+    const isCut = ci < p.cuts.length && tc >= p.cuts[ci][0];
+    const hh = Math.max(1, toY(m) * (H / 2));
+    g.fillStyle = isCut ? cut : fg;
+    g.fillRect(px, mid - hh, 1, hh * 2);
+  }
+  // threshold
+  const ty = toY(Math.pow(10, settings().thr / 20)) * (H / 2);
+  g.strokeStyle = fg; g.lineWidth = 1; g.setLineDash([4, 4]);
+  g.beginPath(); g.moveTo(0, mid - ty + 0.5); g.lineTo(w, mid - ty + 0.5); g.moveTo(0, mid + ty - 0.5); g.lineTo(w, mid + ty - 0.5); g.stroke();
+  g.setLineDash([]);
+  // axis
+  g.strokeStyle = line; g.beginPath(); g.moveTo(0, top + H + 0.5); g.lineTo(w, top + H + 0.5); g.stroke();
+  const steps = [5, 10, 15, 30, 60, 120, 300, 600, 900, 1800];
+  const step = steps.find((s) => (s / D) * w >= 70) || 3600;
+  g.fillStyle = muted; g.font = `11px ${cssVar("--font-body")}`; g.textBaseline = "bottom";
+  for (let t = 0; t <= D; t += step) {
+    const xx = Math.round(x(t)) + 0.5;
+    g.fillRect(xx, top + H, 1, 4);
+    g.textAlign = t === 0 ? "left" : (x(t) > w - 30 ? "right" : "center");
+    g.fillText(fmtClock(t), xx, h);
+  }
+  // playhead
+  if (!els.pv.hidden && els.pv.currentTime > 0) {
+    g.fillStyle = fg; g.fillRect(Math.round(x(els.pv.currentTime)), top, 2, H);
+  }
+}
+
+function setBusy(b) {
+  state.busy = b;
+  els.exportBtn.disabled = b || !state.file || !state.plan;
+  els.cancelBtn.hidden = !b;
+  els.file.disabled = b;
+  els.pick.setAttribute("aria-disabled", String(b));
+}
+
+async function openFile(file) {
+  if (!file || state.busy) return;
+  state.abort?.abort();
+  state.file = file; state.analysis = null; state.plan = null; state.result = null; state.sample = false;
+  els.saveBtn.hidden = true;
+  els.name.textContent = file.name;
+  els.meta.textContent = `${(file.size / 1048576).toFixed(file.size > 1e9 ? 0 : 1).replace(".", ",")} Mo`;
+  els.tag.textContent = "Analyse…";
+  if (state.url) URL.revokeObjectURL(state.url);
+  state.url = URL.createObjectURL(file);
+  els.pv.src = state.url; els.pv.hidden = false; els.pvEmpty.hidden = true; els.skipWrap.hidden = false;
+  const ac = new AbortController(); state.abort = ac;
+  setBusy(true); setBar(0); setStatus("Écoute du son pour trouver les blancs…");
+  try {
+    const t0 = performance.now();
+    const a = await analyseAudio(file, setBar, ac.signal);
+    state.analysis = a;
+    els.meta.textContent += `  ·  ${fmtDur(a.duration)}` + (a.width ? `  ·  ${a.width}×${a.height}` : "");
+    els.tag.textContent = "Ta vidéo";
+    setBar(1);
+    setStatus(`Analyse faite en ${((performance.now() - t0) / 1000).toFixed(0)} s. Ajuste les réglages, écoute l'aperçu, puis exporte.`);
+    recompute();
+  } catch (e) {
+    if (e.name !== "AbortError") { setStatus(errorText(e), true); els.tag.textContent = "Erreur"; }
+  } finally { setBusy(false); }
+}
+
+function errorText(e) {
+  const m = String(e?.message || e);
+  if (/unsupported|not supported|format/i.test(m) && !/navigateur/.test(m)) return `Format non lu par ce navigateur. Essaie un MP4 ou un MOV. (${m})`;
+  return m;
+}
+
+async function doExport() {
+  if (!state.file || !state.plan || state.busy) return;
+  els.pv.pause();
+  const ac = new AbortController(); state.abort = ac;
+  setBusy(true); setBar(0); els.saveBtn.hidden = true;
+  setStatus("Export en cours. Garde cet onglet ouvert.");
+  const t0 = performance.now();
+  try {
+    const { blob, warnings } = await renderCut(state.file, state.plan, setBar, ac.signal);
+    const base = state.file.name.replace(/\.[^.]+$/, "");
+    state.result = { blob, name: `${base}_coupe.mp4` };
+    els.saveBtn.hidden = false;
+    const secs = (performance.now() - t0) / 1000;
+    setStatus([`Prêt : ${state.result.name}, ${(blob.size / 1048576).toFixed(0)} Mo, export en ${fmtDur(secs)}.`, ...warnings].join(" "));
+    save();
+  } catch (e) {
+    if (e.name === "AbortError") { setStatus("Export annulé."); setBar(0); }
+    else setStatus(`L'export a échoué : ${errorText(e)}`, true);
+  } finally { setBusy(false); }
+}
+
+let downloadsApi;
+async function save() {
+  const r = state.result;
+  if (!r) return;
+  if (downloadsApi === undefined) {
+    try { downloadsApi = window.claude?.use ? await window.claude.use("downloads") : null; } catch { downloadsApi = null; }
+  }
+  if (downloadsApi) {
+    try { await downloadsApi.save({ filename: r.name, data: r.blob }); setStatus(`Enregistré : ${r.name}. Glisse-le dans CapCut.`); }
+    catch (e) {
+      if (e?.code === "declined") setStatus("Téléchargement refusé. Clique sur Télécharger le MP4 quand tu veux.");
+      else if (e?.code === "rate_limited") setStatus("Une fenêtre d'enregistrement est déjà ouverte.");
+      else setStatus(`Téléchargement impossible ici (${e?.code || e}).`, true);
+    }
+    return;
+  }
+  // Outside the Claude viewer (self-hosted copy): plain browser download.
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(r.blob); a.download = r.name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+}
+
+// preview: skip cut regions while playing
+function previewTick() {
+  const v = els.pv, p = state.plan;
+  if (p && els.skip.checked && !v.paused) {
+    const t = v.currentTime;
+    const c = p.cuts.find(([s, e]) => t >= s && t < e - 0.02);
+    if (c) v.currentTime = Math.min(c[1], v.duration || c[1]);
+  }
+  draw();
+  if (!v.paused) requestAnimationFrame(previewTick);
+}
+
+// events
+els.file.addEventListener("change", () => openFile(els.file.files[0]));
+els.pick.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); els.file.click(); } });
+for (const ev of ["dragenter", "dragover"]) els.drop.addEventListener(ev, (e) => { e.preventDefault(); els.drop.classList.add("over"); });
+for (const ev of ["dragleave", "drop"]) els.drop.addEventListener(ev, (e) => { e.preventDefault(); els.drop.classList.remove("over"); });
+els.drop.addEventListener("drop", (e) => { const f = e.dataTransfer?.files?.[0]; if (f) openFile(f); });
+for (const el of [els.thr, els.dur, els.mar]) el.addEventListener("input", () => { recompute(); saveSettings(); });
+for (const b of document.querySelectorAll("[data-preset]")) b.addEventListener("click", () => {
+  const p = PRESETS[b.dataset.preset]; els.thr.value = p.thr; els.dur.value = p.dur; els.mar.value = p.mar; recompute(); saveSettings();
+});
+els.exportBtn.addEventListener("click", doExport);
+els.cancelBtn.addEventListener("click", () => { state.abort?.abort(); setStatus("Annulation…"); });
+els.saveBtn.addEventListener("click", save);
+els.pv.addEventListener("play", () => requestAnimationFrame(previewTick));
+els.pv.addEventListener("seeked", draw);
+els.tl.addEventListener("click", (e) => {
+  if (!state.analysis || els.pv.hidden) return;
+  const r = els.tl.getBoundingClientRect();
+  els.pv.currentTime = ((e.clientX - r.left) / r.width) * state.analysis.duration;
+});
+new ResizeObserver(() => draw()).observe(els.tl);
+matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", draw);
+new MutationObserver(draw).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+
+// initial example state
+loadSettings();
+state.analysis = samplePeaks();
+recompute();
+if (!("VideoEncoder" in window)) setStatus("Ce navigateur ne peut pas exporter de vidéo. Ouvre la page dans Chrome ou Safari à jour.", true);
+</script>
+</body>
+</html>
